@@ -19,8 +19,10 @@ if [[ $1 != "db-only" ]]; then
     done
 fi
 
+DB_TEST_DIR=tests/database
+
 if [[ $1 != "no-db" ]]; then
-    for s in tests/database/*.sql; do
+    for s in $DB_TEST_DIR/*.sql; do
         cmnd="psql -v ON_ERROR_STOP=1 -q -d links -f $s"
         echo cmnd=$cmnd
         eval $cmnd
@@ -31,16 +33,22 @@ if [[ $1 != "no-db" ]]; then
         fi
     done
 
-    for t in tests/database/*.links; do
-        cmnd="./links --config=tests/database/config $t"
+    while read t; do
+        expect_broken=0
+        line=($t)
+        if (( ${#line[@]} > 1 )); then
+          t=${line[1]}
+          expect_broken=1
+        fi
+        cmnd="./links --config=$DB_TEST_DIR/config $DB_TEST_DIR/$t.links"
         echo cmnd=$cmnd
         eval $cmnd
         ret_code=$?
-        if [ $ret_code != 0 ]; then
+        if [[ ($ret_code -ne 0 && expect_broken -eq 0) || ($ret_code -eq 0 && expect_broken -ne 0) ]]; then
             echo "FAILED TEST $t"
             ret=1
         fi
-    done
+    done < "$DB_TEST_DIR/testsuite.config"
 fi
 
 exit $ret
