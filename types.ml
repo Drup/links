@@ -1425,7 +1425,8 @@ struct
 (*   let union vars vars' = V.fold add vars' vars *)
 (*   let union_all varss = List.fold_right union varss V.empty *)
 
-  let name_map = IntMap.empty
+  (* JSTOLAREK : what size should we start with? *)
+  let name_map = Hashtbl.create 1000
 
   let varspec_of_tyvar q =
     let flavour = if is_rigid_quantifier q then
@@ -1544,20 +1545,21 @@ struct
       | `Bound -> (name, (flavour, kind, 0))
 
   let combine (name, (flavour, kind, count)) (_flavour', _kind', scope) =
-(*     assert (flavour = _flavour'); *)
-(*     assert (kind = _kind'); *)
+    assert (flavour = _flavour');
+    assert (kind    = _kind'   );
     match scope with
       | `Free  -> (name, (flavour, kind, count+1))
       | `Bound -> (name, (flavour, kind, count))
 
-  let make_names vars =
+  let make_names (vars:vars_list) =
     if Settings.get_value show_raw_type_vars then
-      List.fold_left
+      let _ = List.fold_left
         (fun _ (var, spec) ->
-           match IntMap.lookup var name_map with
-             | None -> IntMap.add var (init spec (string_of_int var)) name_map
-             | Some (name, spec') -> IntMap.add var (combine (name, spec') spec) name_map)
-        name_map vars
+           match Hashtbl.lookup name_map var with
+             | None -> Hashtbl.add name_map var (init spec (string_of_int var))
+             | Some (name, spec') -> Hashtbl.add name_map var (combine (name, spec') spec))
+        () vars
+        in name_map
     else
       begin
         let first_letter = int_of_char 'a' in
@@ -1572,24 +1574,22 @@ struct
               (if n >= num_letters then (num_to_letters (n / num_letters))
                else "") in
 
-        let _ =
-          List.fold_left
-            (fun n (var, spec) ->
-               match IntMap.lookup var name_map with
-                 | None ->
-                    let _ = IntMap.add var (init spec (num_to_letters n)) name_map
-                    in n + 1
-                 | Some (name, spec') ->
-                    let _ = IntMap.add var (combine (name, spec') spec) name_map
-                    in n)
-            (IntMap.size name_map) vars
-        in
-          name_map
+        let _ = List.fold_left
+          (fun n (var, spec) ->
+            match Hashtbl.lookup name_map var with
+            | None ->
+               let _ = Hashtbl.add name_map var (init spec (num_to_letters n))
+               in n + 1
+            | Some (name, spec') ->
+               let _ = Hashtbl.add name_map var (combine (name, spec') spec)
+               in n)
+          (Hashtbl.length name_map) vars
+        in name_map
       end
 
-  let find var = fst -<- (IntMap.find var)
+  let find var tbl = fst (Hashtbl.find tbl var)
 
-  let find_spec = IntMap.find
+  let find_spec var tbl = Hashtbl.find tbl var
 end
 
 (** Type printers *)
@@ -1605,7 +1605,7 @@ struct
      Set flavours to be true to distinguish flexible type variables
      from rigid type variables. *)
   type policy = {quantifiers:bool; flavours:bool; hide_fresh:bool; kinds:string}
-  type names = (string * Vars.spec) IntMap.t
+  type names =  (int, string * Vars.spec) Hashtbl.t
 
   let default_policy () =
     {quantifiers=Settings.get_value show_quantifiers;
@@ -2027,46 +2027,32 @@ let free_bound_tycon_type_vars ?(include_aliases=true) = Vars.free_bound_tycon_v
 (* string conversions *)
 let string_of_datatype ?(policy=Print.default_policy) (t : datatype) =
   let policy = policy () in
-  let t =
-    if policy.Print.quantifiers then t
-    else Print.strip_quantifiers t
-  in
-    Print.datatype
-      TypeVarSet.empty
-      (policy, Vars.make_names (free_bound_type_vars ~include_aliases:true t))
-      t
+  let t = if policy.Print.quantifiers then t
+          else Print.strip_quantifiers t in
+  let name_map = Vars.make_names (free_bound_type_vars ~include_aliases:true t)
+  in Print.datatype TypeVarSet.empty (policy, name_map) t
 
 let string_of_row ?(policy=Print.default_policy) row =
-  Print.row "," TypeVarSet.empty
-    (policy (), Vars.make_names (free_bound_row_type_vars ~include_aliases:true row))
-    row
+  let name_map = Vars.make_names (free_bound_row_type_vars ~include_aliases:true row)
+  in Print.row "," TypeVarSet.empty (policy (), name_map) row
 
 let string_of_presence ?(policy=Print.default_policy) (f : field_spec) =
-  Print.presence
-    TypeVarSet.empty
-    (policy (), Vars.make_names (free_bound_field_spec_type_vars ~include_aliases:true f))
-    f
+  let name_map = Vars.make_names (free_bound_field_spec_type_vars ~include_aliases:true f)
+  in Print.presence TypeVarSet.empty (policy (), name_map) f
 
 let string_of_type_arg ?(policy=Print.default_policy) (arg : type_arg) =
-  Print.type_arg
-    TypeVarSet.empty
-    (policy (), Vars.make_names (free_bound_type_arg_type_vars ~include_aliases:true arg))
-    arg
+  let name_map = Vars.make_names (free_bound_type_arg_type_vars ~include_aliases:true arg)
+  in Print.type_arg TypeVarSet.empty (policy (), name_map) arg
 
 let string_of_row_var ?(policy=Print.default_policy) row_var =
-  match
-    Print.row_var "," TypeVarSet.empty
-      (policy (), Vars.make_names (free_bound_row_var_vars ~include_aliases:true row_var))
-      row_var
-  with
-      | None -> ""
-      | Some s -> s
+  let name_map = Vars.make_names (free_bound_row_var_vars ~include_aliases:true row_var)
+  in match Print.row_var "," TypeVarSet.empty (policy (), name_map) row_var
+     with | None -> ""
+          | Some s -> s
 
 let string_of_tycon_spec ?(policy=Print.default_policy) (tycon : tycon_spec) =
-  Print.tycon_spec
-    TypeVarSet.empty
-    (policy (), Vars.make_names (free_bound_tycon_type_vars ~include_aliases:true tycon))
-    tycon
+  let name_map = Vars.make_names (free_bound_tycon_type_vars ~include_aliases:true tycon)
+  in Print.tycon_spec TypeVarSet.empty (policy (), name_map) tycon
 
 (* TODO: we need a way of choosing consistent names for a collection
    of types (and rows, type_args, etc.) in order to give adequate

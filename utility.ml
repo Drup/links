@@ -93,7 +93,7 @@ module Int = struct
   type t = int
   (*let compare = Pervasives.compare*)
   (*This is a bit of a hack, but should be OK as long as the integers are between 0 and 2^30 or so. *)
-  let compare i j = i-j 
+  let compare i j = i-j
   module Show_t = Deriving_Show.Show_int
 end
 
