@@ -1544,9 +1544,9 @@ struct
       | `Free  -> (name, (flavour, kind, 1))
       | `Bound -> (name, (flavour, kind, 0))
 
-  let combine (name, (flavour, kind, count)) (_flavour', _kind', scope) =
-    assert (flavour = _flavour');
-    assert (kind    = _kind'   );
+  let combine (name, (flavour, kind, count)) (flavour', kind', scope) =
+    assert (flavour = flavour');
+    assert (kind    = kind'   );
     match scope with
       | `Free  -> (name, (flavour, kind, count+1))
       | `Bound -> (name, (flavour, kind, count))
