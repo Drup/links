@@ -1425,6 +1425,8 @@ struct
 (*   let union vars vars' = V.fold add vars' vars *)
 (*   let union_all varss = List.fold_right union varss V.empty *)
 
+  let name_map = IntMap.empty
+
   let varspec_of_tyvar q =
     let flavour = if is_rigid_quantifier q then
       `Rigid
@@ -1551,11 +1553,11 @@ struct
   let make_names vars =
     if Settings.get_value show_raw_type_vars then
       List.fold_left
-        (fun name_map (var, spec) ->
+        (fun _ (var, spec) ->
            match IntMap.lookup var name_map with
              | None -> IntMap.add var (init spec (string_of_int var)) name_map
              | Some (name, spec') -> IntMap.add var (combine (name, spec') spec) name_map)
-        IntMap.empty vars
+        name_map vars
     else
       begin
         let first_letter = int_of_char 'a' in
@@ -1570,13 +1572,17 @@ struct
               (if n >= num_letters then (num_to_letters (n / num_letters))
                else "") in
 
-        let (_, name_map) =
+        let _ =
           List.fold_left
-            (fun (n, name_map) (var, spec) ->
+            (fun n (var, spec) ->
                match IntMap.lookup var name_map with
-                 | None -> (n+1, IntMap.add var (init spec (num_to_letters n)) name_map)
-                 | Some (name, spec') -> (n, IntMap.add var (combine (name, spec') spec) name_map))
-            (0, IntMap.empty) vars
+                 | None ->
+                    let _ = IntMap.add var (init spec (num_to_letters n)) name_map
+                    in n + 1
+                 | Some (name, spec') ->
+                    let _ = IntMap.add var (combine (name, spec') spec) name_map
+                    in n)
+            (IntMap.size name_map) vars
         in
           name_map
       end
@@ -1720,7 +1726,8 @@ struct
         | `Recursive _ -> assert false in
 
       let ppr_arrow args effects t ah ht = (* ah = arrow head, either > or @ *)
-       let (fields, row_var, false) = unwrap effects in
+       let (fields, row_var, dual) = unwrap effects in
+       assert (not dual);
 
        (* Checks that field environment contains exactly the values passed in in
           a list *)
@@ -2324,7 +2331,9 @@ let is_sub_type, is_sub_row =
      associated with input).
   *)
   and is_sub_eff =
-    fun rec_vars ((lfield_env, lrow_var, false as lrow), (rfield_env, rrow_var, false as rrow)) ->
+    fun rec_vars ((lfield_env, lrow_var, ldual as lrow), (rfield_env, rrow_var, rdual as rrow)) ->
+      assert (not ldual);
+      assert (not rdual);
       let sub_fields =
         FieldEnv.fold (fun name f _ ->
                          match f with
